@@ -25,7 +25,7 @@ type Counter interface {
 	GetALLIPs() string
 
 	//GetLastIPTime
-	GetLastIPTime() int64
+	GetLastIPTime() (int64, bool)
 }
 
 // Manager is the interface for stats manager.
