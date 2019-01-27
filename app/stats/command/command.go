@@ -35,7 +35,7 @@ func (s *statsServer) GetStats(ctx context.Context, request *GetStatsRequest) (*
 		value = c.Value()
 	}
 	var allips string
-	allips = c.RemoveAll()
+	allips = c.GetALLIPs()
 	if len(allips) > 0 {
 		allips = request.Name + allips
 	} else {

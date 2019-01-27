@@ -19,7 +19,13 @@ type Counter interface {
 
 	AddIP(string)
 	// RemoveAll remove all the current ips in map and return string of ips with ";"
-	RemoveAll() string
+	RemoveAllIPs() string
+
+	//GetALLIPs
+	GetALLIPs() string
+
+	//GetLastIPTime
+	GetLastIPTime() int64
 }
 
 // Manager is the interface for stats manager.
