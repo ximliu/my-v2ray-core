@@ -174,7 +174,7 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 		if c, _ := stats.GetOrRegisterCounter(d.stats, name); c != nil {
 
 			if lastiptime, ok := c.GetLastIPTime(); ok {
-				if lastiptime-time.Now().Unix() > 60 {
+				if time.Now().Unix()-lastiptime > 60 {
 					c.RemoveAllIPs()
 				}
 			}
