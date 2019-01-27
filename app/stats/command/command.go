@@ -34,9 +34,16 @@ func (s *statsServer) GetStats(ctx context.Context, request *GetStatsRequest) (*
 	} else {
 		value = c.Value()
 	}
+	var allips string
+	allips = c.GetALLIPs()
+	if len(allips) > 0 {
+		allips = request.Name + allips
+	} else {
+		allips = request.Name
+	}
 	return &GetStatsResponse{
 		Stat: &Stat{
-			Name:  request.Name,
+			Name:  allips,
 			Value: value,
 		},
 	}, nil

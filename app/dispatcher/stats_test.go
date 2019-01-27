@@ -81,8 +81,7 @@ func TestStatsWriter(t *testing.T) {
 	if c.Value() != 7 {
 		t.Fatal("unexpected counter value. want 7, but got ", c.Value())
 	}
-	if time1, ok := c.GetLastIPTime(); ok {
-		println(time1, ok)
-	}
-
+	c.AddIP("1237.0.0.1")
+	c.AddIP("123.0.0.1")
+	println(c.GetALLIPs())
 }
