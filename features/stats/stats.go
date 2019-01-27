@@ -14,6 +14,18 @@ type Counter interface {
 	Set(int64) int64
 	// Add adds a value to the current counter value, and returns the previous value.
 	Add(int64) int64
+
+	// AddIP adds a ip string into current map and returns the nothing
+
+	AddIP(string)
+	// RemoveAll remove all the current ips in map and return string of ips with ";"
+	RemoveAllIPs() string
+
+	//GetALLIPs
+	GetALLIPs() string
+
+	//GetLastIPTime
+	GetLastIPTime() (int64, bool)
 }
 
 // Manager is the interface for stats manager.

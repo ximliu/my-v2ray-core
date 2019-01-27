@@ -169,6 +169,18 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 				}
 			}
 		}
+
+		name := "user>>>" + user.Email + ">>>traffic>>>ips"
+		if c, _ := stats.GetOrRegisterCounter(d.stats, name); c != nil {
+
+			if lastiptime, ok := c.GetLastIPTime(); ok {
+				if time.Now().Unix()-lastiptime > 60 {
+					c.RemoveAllIPs()
+				}
+			}
+			c.AddIP(sessionInbound.Source.Address.String())
+		}
+
 	}
 
 	return inboundLink, outboundLink
