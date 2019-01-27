@@ -4,6 +4,7 @@ package stats
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -13,6 +14,7 @@ import (
 // Counter is an implementation of stats.Counter.
 type Counter struct {
 	value int64
+	ips   sync.Map
 }
 
 // Value implements stats.Counter.
@@ -28,6 +30,23 @@ func (c *Counter) Set(newValue int64) int64 {
 // Add implements stats.Counter.
 func (c *Counter) Add(delta int64) int64 {
 	return atomic.AddInt64(&c.value, delta)
+}
+
+// Add ips
+func (c *Counter) AddIP(ip string) {
+	c.ips.Store(ip, 1)
+}
+
+// Remove and return all ips
+func (c *Counter) RemoveAll() string {
+	var allips strings.Builder
+	c.ips.Range(func(key interface{}, value interface{}) bool {
+		allips.WriteString(";")
+		allips.WriteString(key.(string))
+		c.ips.Delete(key)
+		return true
+	})
+	return allips.String()
 }
 
 // Manager is an implementation of stats.Manager.
