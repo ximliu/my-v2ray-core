@@ -77,10 +77,13 @@ while [[ $# > 0 ]];do
         ERROR_IF_UPTODATE="1"
         ;;
         --panelurl)
-        PANLURL="$2"
+        PANELURL="$2"
         ;;
         --panelkey)
-        PANLKEY="$2"
+        PANELKEY="$2"
+        ;;
+        --nodeid)
+        NODEID="$2"
         ;;
         *)
                 # unknown option
@@ -290,11 +293,13 @@ installV2Ray(){
             return 1
         fi
 
-        sed -i "s/https://google.com/${PANELURL}/g" "/etc/v2ray/config.json"
-        sed -i "s/55fUxDGFzH3n/${PANELKEY}/g" "/etc/v2ray/config.json"
+        sed -i "s|"https://google.com"|"${PANELURL}"|g" "/etc/v2ray/config.json"
+        sed -i "s/"55fUxDGFzH3n"/"${PANELKEY}"/g" "/etc/v2ray/config.json"
+        sed -i "s/20/${NODEID}/g" "/etc/v2ray/config.json"
 
         colorEcho ${BLUE} "PANELURL:${PANELURL}"
         colorEcho ${BLUE} "PANELKEY:${PANELKEY}"
+        colorEcho ${BLUE} "NODEID:${NODEID}"
     fi
     return 0
 }

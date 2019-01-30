@@ -98,7 +98,7 @@
   },
   "stats": {},
   "sspanel": {
-    "nodeId": 20,
+    "nodeid": 20,
     "checkRate": 60,
     "panelUrl": "https://google.com",
     "panelKey": "55fUxDGFzH3n"
