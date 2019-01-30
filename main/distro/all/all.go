@@ -60,4 +60,7 @@ import (
 
 	// Load config from file or http(s)
 	_ "v2ray.com/core/main/confloader/external"
+
+	// Load plugins
+	_ "github.com/rico93/v2ray-sspanel-v3-mod_Uim-plugin"
 )
