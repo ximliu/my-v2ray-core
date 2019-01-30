@@ -119,7 +119,7 @@ downloadV2Ray(){
     rm -rf /tmp/v2ray
     mkdir -p /tmp/v2ray
     colorEcho ${BLUE} "Downloading V2Ray."
-    DOWNLOAD_LINK="https://github.com/v2ray/v2ray-core/releases/download/${NEW_VER}/v2ray-linux-${VDIS}.zip"
+    DOWNLOAD_LINK="https://github.com/rico93/v2ray-core/releases/download/${NEW_VER}/v2ray-linux-${VDIS}.zip"
     curl ${PROXY} -L -H "Cache-Control: no-cache" -o ${ZIPFILE} ${DOWNLOAD_LINK}
     if [ $? != 0 ];then
         colorEcho ${RED} "Failed to download! Please check your network or try again."
@@ -137,11 +137,11 @@ installSoftware(){
     getPMT
     if [[ $? -eq 1 ]]; then
         colorEcho ${RED} "The system package manager tool isn't APT or YUM, please install ${COMPONENT} manually."
-        return 1 
+        return 1
     fi
     if [[ $SOFTWARE_UPDATED -eq 0 ]]; then
         colorEcho ${BLUE} "Updating software repo"
-        $CMD_UPDATE      
+        $CMD_UPDATE
         SOFTWARE_UPDATED=1
     fi
 
@@ -201,7 +201,7 @@ getVersion(){
         if [[ ${CUR_VER} != v* ]]; then
             CUR_VER=v${CUR_VER}
         fi
-        TAG_URL="https://api.github.com/repos/v2ray/v2ray-core/releases/latest"
+        TAG_URL="https://api.github.com/repos/rico93/v2ray-core/releases/latest"
         NEW_VER=`curl ${PROXY} -s ${TAG_URL} --connect-timeout 10| grep 'tag_name' | cut -d\" -f4`
         if [[ ${NEW_VER} != v* ]]; then
           NEW_VER=v${NEW_VER}
@@ -367,7 +367,7 @@ remove(){
             colorEcho ${GREEN} "Removed V2Ray successfully."
             colorEcho ${BLUE} "If necessary, please remove configuration file and log file manually."
             return 0
-        fi       
+        fi
     else
         colorEcho ${YELLOW} "V2Ray not found."
         return 0
@@ -395,7 +395,7 @@ main(){
     [[ "$HELP" == "1" ]] && Help && return
     [[ "$CHECK" == "1" ]] && checkUpdate && return
     [[ "$REMOVE" == "1" ]] && remove && return
-    
+
     sysArch
     # extract local file
     if [[ $LOCAL_INSTALL -eq 1 ]]; then
@@ -434,8 +434,8 @@ main(){
             installSoftware unzip || return $?
             extract ${ZIPFILE} || return $?
         fi
-    fi 
-    
+    fi
+
     if [[ "${EXTRACT_ONLY}" == "1" ]]; then
         colorEcho ${GREEN} "V2Ray extracted to ${VSRC_ROOT}, and exiting..."
         return 0
