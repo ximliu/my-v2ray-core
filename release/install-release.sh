@@ -76,6 +76,12 @@ while [[ $# > 0 ]];do
         --errifuptodate)
         ERROR_IF_UPTODATE="1"
         ;;
+        --panelurl)
+        PANLURL="$2"
+        ;;
+        --panelkey)
+        PANLKEY="$2"
+        ;;
         *)
                 # unknown option
         ;;
@@ -283,14 +289,12 @@ installV2Ray(){
             colorEcho ${YELLOW} "Failed to create V2Ray configuration file. Please create it manually."
             return 1
         fi
-        let PORT=$RANDOM+10000
-        UUID=$(cat /proc/sys/kernel/random/uuid)
 
-        sed -i "s/10086/${PORT}/g" "/etc/v2ray/config.json"
-        sed -i "s/23ad6b10-8d1a-40f7-8ad0-e3e35cd38297/${UUID}/g" "/etc/v2ray/config.json"
+        sed -i "s/https://google.com/${PANELURL}/g" "/etc/v2ray/config.json"
+        sed -i "s/55fUxDGFzH3n/${PANELKEY}/g" "/etc/v2ray/config.json"
 
-        colorEcho ${BLUE} "PORT:${PORT}"
-        colorEcho ${BLUE} "UUID:${UUID}"
+        colorEcho ${BLUE} "PANELURL:${PANELURL}"
+        colorEcho ${BLUE} "PANELKEY:${PANELKEY}"
     fi
     return 0
 }
