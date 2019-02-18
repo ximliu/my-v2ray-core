@@ -1,3 +1,5 @@
+// +build !confonly
+
 package socks
 
 import (
@@ -61,6 +63,12 @@ func (s *Server) Network() []net.Network {
 
 // Process implements proxy.Inbound.
 func (s *Server) Process(ctx context.Context, network net.Network, conn internet.Connection, dispatcher routing.Dispatcher) error {
+	if inbound := session.InboundFromContext(ctx); inbound != nil {
+		inbound.User = &protocol.MemoryUser{
+			Level: s.config.UserLevel,
+		}
+	}
+
 	switch network {
 	case net.Network_TCP:
 		return s.processTCP(ctx, conn, dispatcher)
@@ -198,7 +206,7 @@ func (s *Server) handleUDPPayload(ctx context.Context, conn internet.Connection,
 		newError("client UDP connection from ", inbound.Source).WriteToLog(session.ExportIDToError(ctx))
 	}
 
-	reader := buf.NewReader(conn)
+	reader := buf.NewPacketReader(conn)
 	for {
 		mpayload, err := reader.ReadMultiBuffer()
 		if err != nil {
