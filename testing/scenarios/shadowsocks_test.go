@@ -2,7 +2,6 @@ package scenarios
 
 import (
 	"crypto/rand"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +22,6 @@ import (
 	"v2ray.com/core/proxy/shadowsocks"
 	"v2ray.com/core/testing/servers/tcp"
 	"v2ray.com/core/testing/servers/udp"
-	. "v2ray.com/ext/assert"
 )
 
 func TestShadowsocksAES256TCP(t *testing.T) {
@@ -344,7 +342,7 @@ func TestShadowsocksChacha20TCP(t *testing.T) {
 
 	var errg errgroup.Group
 	for i := 0; i < 10; i++ {
-		errg.Go(testTCPConn(clientPort, 10240*1024, time.Second*20))
+		errg.Go(testTCPConn(clientPort, 10240*1024, time.Second*40))
 	}
 
 	if err := errg.Wait(); err != nil {
@@ -538,13 +536,11 @@ func TestShadowsocksAES256GCMTCP(t *testing.T) {
 }
 
 func TestShadowsocksAES128GCMUDP(t *testing.T) {
-	assert := With(t)
-
 	udpServer := udp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := udpServer.Start()
-	assert(err, IsNil)
+	common.Must(err)
 	defer udpServer.Close()
 
 	account := serial.ToTypedMessage(&shadowsocks.Account{
@@ -625,44 +621,24 @@ func TestShadowsocksAES128GCMUDP(t *testing.T) {
 	}
 
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
-	assert(err, IsNil)
+	common.Must(err)
+	defer CloseAllServers(servers)
 
-	var wg sync.WaitGroup
-	wg.Add(10)
+	var errg errgroup.Group
 	for i := 0; i < 10; i++ {
-		go func() {
-			conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
-				IP:   []byte{127, 0, 0, 1},
-				Port: int(clientPort),
-			})
-			assert(err, IsNil)
-
-			payload := make([]byte, 1024)
-			rand.Read(payload)
-
-			nBytes, err := conn.Write([]byte(payload))
-			assert(err, IsNil)
-			assert(nBytes, Equals, len(payload))
-
-			response := readFrom(conn, time.Second*5, 1024)
-			assert(response, Equals, xor([]byte(payload)))
-			assert(conn.Close(), IsNil)
-			wg.Done()
-		}()
+		errg.Go(testUDPConn(clientPort, 1024, time.Second*5))
 	}
-	wg.Wait()
-
-	CloseAllServers(servers)
+	if err := errg.Wait(); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestShadowsocksAES128GCMUDPMux(t *testing.T) {
-	assert := With(t)
-
 	udpServer := udp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := udpServer.Start()
-	assert(err, IsNil)
+	common.Must(err)
 	defer udpServer.Close()
 
 	account := serial.ToTypedMessage(&shadowsocks.Account{
@@ -749,34 +725,16 @@ func TestShadowsocksAES128GCMUDPMux(t *testing.T) {
 	}
 
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
-	assert(err, IsNil)
+	common.Must(err)
+	defer CloseAllServers(servers)
 
-	var wg sync.WaitGroup
-	wg.Add(10)
+	var errg errgroup.Group
 	for i := 0; i < 10; i++ {
-		go func() {
-			conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
-				IP:   []byte{127, 0, 0, 1},
-				Port: int(clientPort),
-			})
-			assert(err, IsNil)
-
-			payload := make([]byte, 1024)
-			rand.Read(payload)
-
-			nBytes, err := conn.Write([]byte(payload))
-			assert(err, IsNil)
-			assert(nBytes, Equals, len(payload))
-
-			response := readFrom(conn, time.Second*5, 1024)
-			assert(response, Equals, xor([]byte(payload)))
-			assert(conn.Close(), IsNil)
-			wg.Done()
-		}()
+		errg.Go(testUDPConn(clientPort, 1024, time.Second*5))
 	}
-	wg.Wait()
-
-	CloseAllServers(servers)
+	if err := errg.Wait(); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestShadowsocksNone(t *testing.T) {

@@ -1,3 +1,5 @@
+// +build !confonly
+
 package dokodemo
 
 //go:generate errorgen
@@ -11,6 +13,7 @@ import (
 	"v2ray.com/core/common"
 	"v2ray.com/core/common/buf"
 	"v2ray.com/core/common/net"
+	"v2ray.com/core/common/protocol"
 	"v2ray.com/core/common/session"
 	"v2ray.com/core/common/signal"
 	"v2ray.com/core/common/task"
@@ -97,6 +100,12 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 		return newError("unable to get destination")
 	}
 
+	if inbound := session.InboundFromContext(ctx); inbound != nil {
+		inbound.User = &protocol.MemoryUser{
+			Level: d.config.UserLevel,
+		}
+	}
+
 	plcy := d.policy()
 	ctx, cancel := context.WithCancel(ctx)
 	timer := signal.CancelAfterInactivity(ctx, cancel, plcy.Timeouts.ConnectionIdle)
@@ -115,7 +124,12 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 			}
 		}()
 
-		reader := buf.NewReader(conn)
+		var reader buf.Reader
+		if dest.Network == net.Network_UDP {
+			reader = buf.NewPacketReader(conn)
+		} else {
+			reader = buf.NewReader(conn)
+		}
 		if err := buf.Copy(reader, link.Writer, buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transport request").Base(err)
 		}
@@ -149,7 +163,7 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 			defer tConn.Close()
 
 			writer = &buf.SequentialWriter{Writer: tConn}
-			tReader := buf.NewReader(tConn)
+			tReader := buf.NewPacketReader(tConn)
 			requestCount++
 			tproxyRequest = func() error {
 				defer func() {
