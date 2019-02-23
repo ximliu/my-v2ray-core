@@ -15,6 +15,8 @@ type Router interface {
 
 	// PickRoute returns a tag of an OutboundHandler based on the given context.
 	PickRoute(ctx context.Context) (string, error)
+	AddUsers(targettag string, emails []string)
+	RemoveUser(emails []string)
 }
 
 // RouterType return the type of Router interface. Can be used to implement common.HasType.
@@ -36,6 +38,8 @@ func (DefaultRouter) Type() interface{} {
 func (DefaultRouter) PickRoute(ctx context.Context) (string, error) {
 	return "", common.ErrNoClue
 }
+func (DefaultRouter) AddUsers(targettag string, emails []string) {}
+func (DefaultRouter) RemoveUser(emails []string)                 {}
 
 // Start implements common.Runnable.
 func (DefaultRouter) Start() error {

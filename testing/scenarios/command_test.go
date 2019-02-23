@@ -16,6 +16,7 @@ import (
 	"v2ray.com/core/app/proxyman"
 	"v2ray.com/core/app/proxyman/command"
 	"v2ray.com/core/app/router"
+	usercmd "v2ray.com/core/app/router/command"
 	"v2ray.com/core/app/stats"
 	statscmd "v2ray.com/core/app/stats/command"
 	"v2ray.com/core/common"
@@ -491,4 +492,172 @@ func TestCommanderStats(t *testing.T) {
 	if sresp.Stat.Value <= 10240*1024 {
 		t.Error("value < 10240*1024: ", sresp.Stat.Value)
 	}
+}
+func TestCommanderUser(t *testing.T) {
+	tcpServer := tcp.Server{
+		MsgProcessor: xor,
+	}
+	dest, err := tcpServer.Start()
+	common.Must(err)
+	defer tcpServer.Close()
+
+	userID := protocol.NewID(uuid.New())
+	serverPort := tcp.PickPort()
+	cmdPort := tcp.PickPort()
+
+	serverConfig := &core.Config{
+		App: []*serial.TypedMessage{
+			serial.ToTypedMessage(&stats.Config{}),
+			serial.ToTypedMessage(&commander.Config{
+				Tag: "api",
+				Service: []*serial.TypedMessage{
+					serial.ToTypedMessage(&usercmd.Config{}),
+				},
+			}),
+			serial.ToTypedMessage(&router.Config{
+				Rule: []*router.RoutingRule{
+					{
+						InboundTag: []string{"api"},
+						TargetTag: &router.RoutingRule_Tag{
+							Tag: "api",
+						},
+					},
+				},
+			}),
+			serial.ToTypedMessage(&policy.Config{
+				Level: map[uint32]*policy.Policy{
+					0: {
+						Timeout: &policy.Policy_Timeout{
+							UplinkOnly:   &policy.Second{Value: 0},
+							DownlinkOnly: &policy.Second{Value: 0},
+						},
+					},
+					1: {
+						Stats: &policy.Policy_Stats{
+							UserUplink:   true,
+							UserDownlink: true,
+						},
+					},
+				},
+				System: &policy.SystemPolicy{
+					Stats: &policy.SystemPolicy_Stats{
+						InboundUplink: true,
+					},
+				},
+			}),
+		},
+		Inbound: []*core.InboundHandlerConfig{
+			{
+				Tag: "vmess",
+				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
+					PortRange: net.SinglePortRange(serverPort),
+					Listen:    net.NewIPOrDomain(net.LocalHostIP),
+				}),
+				ProxySettings: serial.ToTypedMessage(&inbound.Config{
+					User: []*protocol.User{
+						{
+							Level: 1,
+							Email: "test",
+							Account: serial.ToTypedMessage(&vmess.Account{
+								Id:      userID.String(),
+								AlterId: 64,
+							}),
+						},
+					},
+				}),
+			},
+			{
+				Tag: "api",
+				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
+					PortRange: net.SinglePortRange(cmdPort),
+					Listen:    net.NewIPOrDomain(net.LocalHostIP),
+				}),
+				ProxySettings: serial.ToTypedMessage(&dokodemo.Config{
+					Address: net.NewIPOrDomain(dest.Address),
+					Port:    uint32(dest.Port),
+					NetworkList: &net.NetworkList{
+						Network: []net.Network{net.Network_TCP},
+					},
+				}),
+			},
+		},
+		Outbound: []*core.OutboundHandlerConfig{
+			{
+				ProxySettings: serial.ToTypedMessage(&freedom.Config{}),
+			},
+		},
+	}
+
+	clientPort := tcp.PickPort()
+	clientConfig := &core.Config{
+		Inbound: []*core.InboundHandlerConfig{
+			{
+				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
+					PortRange: net.SinglePortRange(clientPort),
+					Listen:    net.NewIPOrDomain(net.LocalHostIP),
+				}),
+				ProxySettings: serial.ToTypedMessage(&dokodemo.Config{
+					Address: net.NewIPOrDomain(dest.Address),
+					Port:    uint32(dest.Port),
+					NetworkList: &net.NetworkList{
+						Network: []net.Network{net.Network_TCP},
+					},
+				}),
+			},
+		},
+		Outbound: []*core.OutboundHandlerConfig{
+			{
+				ProxySettings: serial.ToTypedMessage(&outbound.Config{
+					Receiver: []*protocol.ServerEndpoint{
+						{
+							Address: net.NewIPOrDomain(net.LocalHostIP),
+							Port:    uint32(serverPort),
+							User: []*protocol.User{
+								{
+									Account: serial.ToTypedMessage(&vmess.Account{
+										Id:      userID.String(),
+										AlterId: 64,
+										SecuritySettings: &protocol.SecurityConfig{
+											Type: protocol.SecurityType_AES128_GCM,
+										},
+									}),
+								},
+							},
+						},
+					},
+				}),
+			},
+		},
+	}
+
+	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
+	if err != nil {
+		t.Fatal("Failed to create all servers", err)
+	}
+	defer CloseAllServers(servers)
+
+	if err := testTCPConn(clientPort, 10240*1024, time.Second*20)(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmdConn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", cmdPort), grpc.WithInsecure(), grpc.WithBlock())
+	common.Must(err)
+	defer cmdConn.Close()
+
+	sClient := usercmd.NewUserRuleServerClient(cmdConn)
+
+	_, err = sClient.AddUserRule(context.Background(), &usercmd.AddUserRuleRequest{
+		TargetTag: "asdf",
+		Email:     []string{"asdf", "asdf"},
+	})
+	common.Must(err)
+
+	_, err = sClient.AddUserRule(context.Background(), &usercmd.AddUserRuleRequest{
+		TargetTag: "asdf1",
+		Email:     []string{"asdf", "asdf2"},
+	})
+	common.Must(err)
+	_, err = sClient.RemoveUserRule(context.Background(), &usercmd.RemoveUserRequest{
+		Email: []string{"asdf", "asdf2"},
+	})
 }
