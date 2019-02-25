@@ -166,6 +166,7 @@ func (r *Router) RemoveUser(Users []string) {
 	for index, rl := range r.rules {
 		if !m[index] {
 			newRules[start] = rl
+			start += 1
 		}
 	}
 	newtargettag2indexmap := make(map[string]int, len(newRules))
