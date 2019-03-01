@@ -12,6 +12,7 @@ import (
 	_ "v2ray.com/core/app/commander"
 	_ "v2ray.com/core/app/log/command"
 	_ "v2ray.com/core/app/proxyman/command"
+	_ "v2ray.com/core/app/router/command"
 	_ "v2ray.com/core/app/stats/command"
 
 	// Other optional features.
@@ -24,6 +25,7 @@ import (
 
 	// Inbound and outbound proxies.
 	_ "v2ray.com/core/proxy/blackhole"
+	_ "v2ray.com/core/proxy/dns"
 	_ "v2ray.com/core/proxy/dokodemo"
 	_ "v2ray.com/core/proxy/freedom"
 	_ "v2ray.com/core/proxy/http"
@@ -60,4 +62,7 @@ import (
 
 	// Load config from file or http(s)
 	_ "v2ray.com/core/main/confloader/external"
+
+	// Load plugins
+	_ "github.com/rico93/v2ray-sspanel-v3-mod_Uim-plugin"
 )

@@ -1,3 +1,5 @@
+// +build !confonly
+
 package dns
 
 //go:generate errorgen
@@ -12,6 +14,7 @@ import (
 	"v2ray.com/core/common/net"
 	"v2ray.com/core/common/session"
 	"v2ray.com/core/common/strmatcher"
+	"v2ray.com/core/common/uuid"
 	"v2ray.com/core/features"
 	"v2ray.com/core/features/dns"
 	"v2ray.com/core/features/routing"
@@ -28,11 +31,19 @@ type Server struct {
 	tag            string
 }
 
+func generateRandomTag() string {
+	id := uuid.New()
+	return "v2ray.system." + id.String()
+}
+
 // New creates a new DNS server with given configuration.
 func New(ctx context.Context, config *Config) (*Server, error) {
 	server := &Server{
 		clients: make([]Client, 0, len(config.NameServers)+len(config.NameServer)),
 		tag:     config.Tag,
+	}
+	if len(server.tag) == 0 {
+		server.tag = generateRandomTag()
 	}
 	if len(config.ClientIp) > 0 {
 		if len(config.ClientIp) != 4 && len(config.ClientIp) != 16 {
@@ -119,6 +130,11 @@ func (s *Server) Close() error {
 	return nil
 }
 
+func (s *Server) IsOwnLink(ctx context.Context) bool {
+	inbound := session.InboundFromContext(ctx)
+	return inbound != nil && inbound.Tag == s.tag
+}
+
 func (s *Server) queryIPTimeout(client Client, domain string, option IPOption) ([]net.IP, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*4)
 	if len(s.tag) > 0 {
@@ -155,9 +171,49 @@ func (s *Server) LookupIPv6(domain string) ([]net.IP, error) {
 	})
 }
 
+func (s *Server) lookupStatic(domain string, option IPOption, depth int32) []net.Address {
+	ips := s.hosts.LookupIP(domain, option)
+	if ips == nil {
+		return nil
+	}
+	if ips[0].Family().IsDomain() && depth < 5 {
+		if newIPs := s.lookupStatic(ips[0].Domain(), option, depth+1); newIPs != nil {
+			return newIPs
+		}
+	}
+	return ips
+}
+
+func toNetIP(ips []net.Address) []net.IP {
+	if len(ips) == 0 {
+		return nil
+	}
+	netips := make([]net.IP, 0, len(ips))
+	for _, ip := range ips {
+		netips = append(netips, ip.IP())
+	}
+	return netips
+}
+
 func (s *Server) lookupIPInternal(domain string, option IPOption) ([]net.IP, error) {
-	if ip := s.hosts.LookupIP(domain, option); len(ip) > 0 {
-		return ip, nil
+	if len(domain) == 0 {
+		return nil, newError("empty domain name")
+	}
+
+	if domain[len(domain)-1] == '.' {
+		domain = domain[:len(domain)-1]
+	}
+
+	ips := s.lookupStatic(domain, option, 0)
+	if ips != nil && ips[0].Family().IsIP() {
+		newError("returning ", len(ips), " IPs for domain ", domain).WriteToLog()
+		return toNetIP(ips), nil
+	}
+
+	if ips != nil && ips[0].Family().IsDomain() {
+		newdomain := ips[0].Domain()
+		newError("domain replaced: ", domain, " -> ", newdomain).WriteToLog()
+		domain = newdomain
 	}
 
 	var lastErr error
@@ -165,6 +221,7 @@ func (s *Server) lookupIPInternal(domain string, option IPOption) ([]net.IP, err
 		idx := s.domainMatcher.Match(domain)
 		if idx > 0 {
 			ns := s.clients[s.domainIndexMap[idx]]
+			newError("querying domain ", domain, " at ", ns.Name()).WriteToLog()
 			ips, err := s.queryIPTimeout(ns, domain, option)
 			if len(ips) > 0 {
 				return ips, nil

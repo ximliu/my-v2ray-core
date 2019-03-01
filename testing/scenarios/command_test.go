@@ -16,8 +16,10 @@ import (
 	"v2ray.com/core/app/proxyman"
 	"v2ray.com/core/app/proxyman/command"
 	"v2ray.com/core/app/router"
+	usercmd "v2ray.com/core/app/router/command"
 	"v2ray.com/core/app/stats"
 	statscmd "v2ray.com/core/app/stats/command"
+	"v2ray.com/core/common"
 	"v2ray.com/core/common/net"
 	"v2ray.com/core/common/protocol"
 	"v2ray.com/core/common/serial"
@@ -28,17 +30,14 @@ import (
 	"v2ray.com/core/proxy/vmess/inbound"
 	"v2ray.com/core/proxy/vmess/outbound"
 	"v2ray.com/core/testing/servers/tcp"
-	. "v2ray.com/ext/assert"
 )
 
 func TestCommanderRemoveHandler(t *testing.T) {
-	assert := With(t)
-
 	tcpServer := tcp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := tcpServer.Start()
-	assert(err, IsNil)
+	common.Must(err)
 	defer tcpServer.Close()
 
 	clientPort := tcp.PickPort()
@@ -97,61 +96,43 @@ func TestCommanderRemoveHandler(t *testing.T) {
 	}
 
 	servers, err := InitializeServerConfigs(clientConfig)
-	assert(err, IsNil)
-
+	common.Must(err)
 	defer CloseAllServers(servers)
 
-	{
-		conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{
-			IP:   []byte{127, 0, 0, 1},
-			Port: int(clientPort),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer conn.Close() // nolint: errcheck
-
-		payload := "commander request."
-		nBytes, err := conn.Write([]byte(payload))
-		assert(err, IsNil)
-		assert(nBytes, Equals, len(payload))
-
-		response := make([]byte, 1024)
-		nBytes, err = conn.Read(response)
-		assert(err, IsNil)
-		if r := cmp.Diff(response[:nBytes], xor([]byte(payload))); r != "" {
-			t.Fatal(r)
-		}
+	if err := testTCPConn(clientPort, 1024, time.Second*5)(); err != nil {
+		t.Fatal(err)
 	}
 
 	cmdConn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", cmdPort), grpc.WithInsecure(), grpc.WithBlock())
-	assert(err, IsNil)
+	common.Must(err)
 	defer cmdConn.Close()
 
 	hsClient := command.NewHandlerServiceClient(cmdConn)
 	resp, err := hsClient.RemoveInbound(context.Background(), &command.RemoveInboundRequest{
 		Tag: "d",
 	})
-	assert(err, IsNil)
-	assert(resp, IsNotNil)
+	common.Must(err)
+	if resp == nil {
+		t.Error("unexpected nil response")
+	}
 
 	{
 		_, err := net.DialTCP("tcp", nil, &net.TCPAddr{
 			IP:   []byte{127, 0, 0, 1},
 			Port: int(clientPort),
 		})
-		assert(err, IsNotNil)
+		if err == nil {
+			t.Error("unexpected nil error")
+		}
 	}
 }
 
 func TestCommanderAddRemoveUser(t *testing.T) {
-	assert := With(t)
-
 	tcpServer := tcp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := tcpServer.Start()
-	assert(err, IsNil)
+	common.Must(err)
 	defer tcpServer.Close()
 
 	u1 := protocol.NewID(uuid.New())
@@ -282,29 +263,15 @@ func TestCommanderAddRemoveUser(t *testing.T) {
 	}
 
 	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
-	assert(err, IsNil)
+	common.Must(err)
+	defer CloseAllServers(servers)
 
-	{
-		conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{
-			IP:   []byte{127, 0, 0, 1},
-			Port: int(clientPort),
-		})
-		assert(err, IsNil)
-
-		payload := "commander request."
-		nBytes, err := conn.Write([]byte(payload))
-		assert(err, IsNil)
-		assert(nBytes, Equals, len(payload))
-
-		response := make([]byte, 1024)
-		nBytes, err = conn.Read(response)
-		assert(nBytes, Equals, 0)
-		assert(err, Equals, io.EOF)
-		assert(conn.Close(), IsNil)
+	if err := testTCPConn(clientPort, 1024, time.Second*5)(); err != io.EOF {
+		t.Fatal("expected error: ", err)
 	}
 
 	cmdConn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", cmdPort), grpc.WithInsecure(), grpc.WithBlock())
-	assert(err, IsNil)
+	common.Must(err)
 	defer cmdConn.Close()
 
 	hsClient := command.NewHandlerServiceClient(cmdConn)
@@ -321,46 +288,31 @@ func TestCommanderAddRemoveUser(t *testing.T) {
 				},
 			}),
 	})
-	assert(err, IsNil)
-	assert(resp, IsNotNil)
+	common.Must(err)
+	if resp == nil {
+		t.Fatal("nil response")
+	}
 
-	{
-		conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{
-			IP:   []byte{127, 0, 0, 1},
-			Port: int(clientPort),
-		})
-		assert(err, IsNil)
-
-		payload := "commander request."
-		nBytes, err := conn.Write([]byte(payload))
-		assert(err, IsNil)
-		assert(nBytes, Equals, len(payload))
-
-		response := make([]byte, 1024)
-		nBytes, err = conn.Read(response)
-		assert(err, IsNil)
-		assert(response[:nBytes], Equals, xor([]byte(payload)))
-		assert(conn.Close(), IsNil)
+	if err := testTCPConn(clientPort, 1024, time.Second*5)(); err != nil {
+		t.Fatal(err)
 	}
 
 	resp, err = hsClient.AlterInbound(context.Background(), &command.AlterInboundRequest{
 		Tag:       "v",
 		Operation: serial.ToTypedMessage(&command.RemoveUserOperation{Email: "test@v2ray.com"}),
 	})
-	assert(resp, IsNotNil)
-	assert(err, IsNil)
-
-	CloseAllServers(servers)
+	common.Must(err)
+	if resp == nil {
+		t.Fatal("nil response")
+	}
 }
 
 func TestCommanderStats(t *testing.T) {
-	assert := With(t)
-
 	tcpServer := tcp.Server{
 		MsgProcessor: xor,
 	}
 	dest, err := tcpServer.Start()
-	assert(err, IsNil)
+	common.Must(err)
 	defer tcpServer.Close()
 
 	userID := protocol.NewID(uuid.New())
@@ -503,7 +455,7 @@ func TestCommanderStats(t *testing.T) {
 	}
 
 	cmdConn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", cmdPort), grpc.WithInsecure(), grpc.WithBlock())
-	assert(err, IsNil)
+	common.Must(err)
 	defer cmdConn.Close()
 
 	const name = "user>>>test>>>traffic>>>uplink"
@@ -513,21 +465,199 @@ func TestCommanderStats(t *testing.T) {
 		Name:   name,
 		Reset_: true,
 	})
-	assert(err, IsNil)
-	assert(sresp.Stat.Name, Equals, name)
-	assert(sresp.Stat.Value, Equals, int64(10240*1024))
+	common.Must(err)
+	if r := cmp.Diff(sresp.Stat, &statscmd.Stat{
+		Name:  name,
+		Value: 10240 * 1024,
+	}); r != "" {
+		t.Error(r)
+	}
 
 	sresp, err = sClient.GetStats(context.Background(), &statscmd.GetStatsRequest{
 		Name: name,
 	})
-	assert(err, IsNil)
-	assert(sresp.Stat.Name, Equals, name)
-	assert(sresp.Stat.Value, Equals, int64(0))
+	common.Must(err)
+	if r := cmp.Diff(sresp.Stat, &statscmd.Stat{
+		Name:  name,
+		Value: 0,
+	}); r != "" {
+		t.Error(r)
+	}
 
 	sresp, err = sClient.GetStats(context.Background(), &statscmd.GetStatsRequest{
 		Name:   "inbound>>>vmess>>>traffic>>>uplink",
 		Reset_: true,
 	})
-	assert(err, IsNil)
-	assert(sresp.Stat.Value, GreaterThan, int64(10240*1024))
+	common.Must(err)
+	if sresp.Stat.Value <= 10240*1024 {
+		t.Error("value < 10240*1024: ", sresp.Stat.Value)
+	}
+}
+func TestCommanderUser(t *testing.T) {
+	tcpServer := tcp.Server{
+		MsgProcessor: xor,
+	}
+	dest, err := tcpServer.Start()
+	common.Must(err)
+	defer tcpServer.Close()
+
+	userID := protocol.NewID(uuid.New())
+	serverPort := tcp.PickPort()
+	cmdPort := tcp.PickPort()
+
+	serverConfig := &core.Config{
+		App: []*serial.TypedMessage{
+			serial.ToTypedMessage(&stats.Config{}),
+			serial.ToTypedMessage(&commander.Config{
+				Tag: "api",
+				Service: []*serial.TypedMessage{
+					serial.ToTypedMessage(&usercmd.Config{}),
+				},
+			}),
+			serial.ToTypedMessage(&router.Config{
+				Rule: []*router.RoutingRule{
+					{
+						InboundTag: []string{"api"},
+						TargetTag: &router.RoutingRule_Tag{
+							Tag: "api",
+						},
+					},
+				},
+			}),
+			serial.ToTypedMessage(&policy.Config{
+				Level: map[uint32]*policy.Policy{
+					0: {
+						Timeout: &policy.Policy_Timeout{
+							UplinkOnly:   &policy.Second{Value: 0},
+							DownlinkOnly: &policy.Second{Value: 0},
+						},
+					},
+					1: {
+						Stats: &policy.Policy_Stats{
+							UserUplink:   true,
+							UserDownlink: true,
+						},
+					},
+				},
+				System: &policy.SystemPolicy{
+					Stats: &policy.SystemPolicy_Stats{
+						InboundUplink: true,
+					},
+				},
+			}),
+		},
+		Inbound: []*core.InboundHandlerConfig{
+			{
+				Tag: "vmess",
+				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
+					PortRange: net.SinglePortRange(serverPort),
+					Listen:    net.NewIPOrDomain(net.LocalHostIP),
+				}),
+				ProxySettings: serial.ToTypedMessage(&inbound.Config{
+					User: []*protocol.User{
+						{
+							Level: 1,
+							Email: "test",
+							Account: serial.ToTypedMessage(&vmess.Account{
+								Id:      userID.String(),
+								AlterId: 64,
+							}),
+						},
+					},
+				}),
+			},
+			{
+				Tag: "api",
+				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
+					PortRange: net.SinglePortRange(cmdPort),
+					Listen:    net.NewIPOrDomain(net.LocalHostIP),
+				}),
+				ProxySettings: serial.ToTypedMessage(&dokodemo.Config{
+					Address: net.NewIPOrDomain(dest.Address),
+					Port:    uint32(dest.Port),
+					NetworkList: &net.NetworkList{
+						Network: []net.Network{net.Network_TCP},
+					},
+				}),
+			},
+		},
+		Outbound: []*core.OutboundHandlerConfig{
+			{
+				ProxySettings: serial.ToTypedMessage(&freedom.Config{}),
+			},
+		},
+	}
+
+	clientPort := tcp.PickPort()
+	clientConfig := &core.Config{
+		Inbound: []*core.InboundHandlerConfig{
+			{
+				ReceiverSettings: serial.ToTypedMessage(&proxyman.ReceiverConfig{
+					PortRange: net.SinglePortRange(clientPort),
+					Listen:    net.NewIPOrDomain(net.LocalHostIP),
+				}),
+				ProxySettings: serial.ToTypedMessage(&dokodemo.Config{
+					Address: net.NewIPOrDomain(dest.Address),
+					Port:    uint32(dest.Port),
+					NetworkList: &net.NetworkList{
+						Network: []net.Network{net.Network_TCP},
+					},
+				}),
+			},
+		},
+		Outbound: []*core.OutboundHandlerConfig{
+			{
+				ProxySettings: serial.ToTypedMessage(&outbound.Config{
+					Receiver: []*protocol.ServerEndpoint{
+						{
+							Address: net.NewIPOrDomain(net.LocalHostIP),
+							Port:    uint32(serverPort),
+							User: []*protocol.User{
+								{
+									Account: serial.ToTypedMessage(&vmess.Account{
+										Id:      userID.String(),
+										AlterId: 64,
+										SecuritySettings: &protocol.SecurityConfig{
+											Type: protocol.SecurityType_AES128_GCM,
+										},
+									}),
+								},
+							},
+						},
+					},
+				}),
+			},
+		},
+	}
+
+	servers, err := InitializeServerConfigs(serverConfig, clientConfig)
+	if err != nil {
+		t.Fatal("Failed to create all servers", err)
+	}
+	defer CloseAllServers(servers)
+
+	if err := testTCPConn(clientPort, 10240*1024, time.Second*20)(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmdConn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", cmdPort), grpc.WithInsecure(), grpc.WithBlock())
+	common.Must(err)
+	defer cmdConn.Close()
+
+	sClient := usercmd.NewUserRuleServerClient(cmdConn)
+
+	_, err = sClient.AddUserRule(context.Background(), &usercmd.AddUserRuleRequest{
+		TargetTag: "asdf",
+		Email:     []string{"asdf", "asdf"},
+	})
+	common.Must(err)
+
+	_, err = sClient.AddUserRule(context.Background(), &usercmd.AddUserRuleRequest{
+		TargetTag: "asdf1",
+		Email:     []string{"asdf", "asdf2"},
+	})
+	common.Must(err)
+	_, err = sClient.RemoveUserRule(context.Background(), &usercmd.RemoveUserRequest{
+		Email: []string{"asdf", "asdf2"},
+	})
 }

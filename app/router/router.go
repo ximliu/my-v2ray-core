@@ -1,9 +1,14 @@
+// +build !confonly
+
 package router
 
 //go:generate errorgen
 
 import (
 	"context"
+	"runtime"
+	"sort"
+	"sync"
 
 	"v2ray.com/core"
 	"v2ray.com/core/common"
@@ -27,10 +32,154 @@ func init() {
 
 // Router is an implementation of routing.Router.
 type Router struct {
-	domainStrategy Config_DomainStrategy
-	rules          []*Rule
-	balancers      map[string]*Balancer
-	dns            dns.Client
+	sync.Mutex
+	domainStrategy     Config_DomainStrategy
+	rules              []*Rule
+	balancers          map[string]*Balancer
+	dns                dns.Client
+	targettag2indexmap map[string]int
+	index2targettag    map[int]string
+}
+
+func NewRouter() *Router {
+	con := NewConditionChan()
+	con.Add(NewInboundTagMatcher([]string{"asdf"}))
+	con.Add(NewProtocolMatcher([]string{"tls"}))
+	con.Add(NewUserMatcher([]string{"bge"}))
+	return &Router{
+		domainStrategy:     Config_AsIs,
+		rules:              []*Rule{&Rule{Condition: con}},
+		balancers:          map[string]*Balancer{},
+		targettag2indexmap: map[string]int{},
+		index2targettag:    map[int]string{},
+	}
+}
+func Romvededuplicate(users []string) []string {
+	sort.Strings(users)
+	j := 0
+	for i := 1; i < len(users); i++ {
+		if users[j] == users[i] {
+			continue
+		}
+		j++
+		// preserve the original data
+		// in[i], in[j] = in[j], in[i]
+		// only set what is required
+		users[j] = users[i]
+	}
+	return users[:j+1]
+}
+func (r *Router) AddUsers(targettag string, emails []string) {
+	r.Lock()
+	defer r.Unlock()
+	if index, ok := r.targettag2indexmap[targettag]; ok {
+		if conditioncan, ok := r.rules[index].Condition.(*ConditionChan); ok {
+			for _, condition := range *conditioncan {
+				if usermatcher, ok := condition.(*UserMatcher); ok {
+					usermatcher.user = Romvededuplicate(append(usermatcher.user, emails...))
+					break
+				}
+			}
+		} else if usermatcher, ok := r.rules[index].Condition.(*UserMatcher); ok {
+			usermatcher.user = Romvededuplicate(append(usermatcher.user, emails...))
+
+		}
+	} else {
+		tagStartIndex := len(r.rules)
+		r.targettag2indexmap[targettag] = tagStartIndex
+		r.index2targettag[tagStartIndex] = targettag
+		r.rules = append(r.rules, &Rule{Condition: NewUserMatcher(emails), Tag: targettag})
+	}
+	runtime.GC()
+}
+
+func (r *Router) RemoveUser(Users []string) {
+	r.Lock()
+	defer r.Unlock()
+	removed_index := make([]int, 0, len(r.rules))
+	for _, email := range Users {
+		for _, rl := range r.rules {
+			conditions, ok := rl.Condition.(*ConditionChan)
+			if ok {
+				for _, v := range *conditions {
+					usermatcher, ok := v.(*UserMatcher)
+					if ok {
+						index := -1
+						for i, e := range usermatcher.user {
+							if e == email {
+								index = i
+								break
+							}
+						}
+						if index != -1 {
+							usermatcher.user = append(usermatcher.user[:index], usermatcher.user[index+1:]...)
+						}
+						break
+					}
+				}
+			} else {
+				if usermatcher, ok := rl.Condition.(*UserMatcher); ok {
+					index := -1
+					for i, e := range usermatcher.user {
+						if e == email {
+							index = i
+							break
+						}
+					}
+					if index != -1 {
+						usermatcher.user = append(usermatcher.user[:index], usermatcher.user[index+1:]...)
+					}
+				}
+			}
+
+		}
+	}
+	for index, rl := range r.rules {
+		conditions, ok := rl.Condition.(*ConditionChan)
+		if ok {
+			for _, v := range *conditions {
+				usermatcher, ok := v.(*UserMatcher)
+				if ok {
+					if len(usermatcher.user) == 0 {
+						removed_index = append(removed_index, index)
+						break
+					}
+
+				}
+			}
+		} else {
+			usermatcher, ok := rl.Condition.(*UserMatcher)
+			if ok {
+				if len(usermatcher.user) == 0 {
+					removed_index = append(removed_index, index)
+				}
+			}
+		}
+
+	}
+	newRules := make([]*Rule, len(r.rules)-len(removed_index))
+	m := make(map[int]bool, len(r.rules))
+	for _, reomve := range removed_index {
+		m[reomve] = true
+	}
+	start := 0
+	for index, rl := range r.rules {
+		if !m[index] {
+			newRules[start] = rl
+			start += 1
+		}
+	}
+	newtargettag2indexmap := make(map[string]int, len(newRules))
+	newindex2targettag := make(map[int]string, len(newRules))
+	for index, rule := range newRules {
+		newtargettag2indexmap[rule.Tag] = index
+		newindex2targettag[index] = rule.Tag
+	}
+	r.rules = newRules
+	r.targettag2indexmap = newtargettag2indexmap
+	r.index2targettag = newindex2targettag
+	runtime.GC()
+	return
 }
 
 // Init initializes the Router.
@@ -39,6 +188,8 @@ func (r *Router) Init(config *Config, d dns.Client, ohm outbound.Manager) error 
 	r.dns = d
 
 	r.balancers = make(map[string]*Balancer, len(config.BalancingRule))
+	r.targettag2indexmap = map[string]int{}
+	r.index2targettag = map[int]string{}
 	for _, rule := range config.BalancingRule {
 		balancer, err := rule.Build(ohm)
 		if err != nil {

@@ -1,3 +1,5 @@
+// +build !confonly
+
 package stats
 
 //go:generate errorgen
@@ -42,9 +44,11 @@ func (c *Counter) AddIP(ip string) {
 func (c *Counter) RemoveAllIPs() string {
 	var allips strings.Builder
 	c.ips.Range(func(key interface{}, value interface{}) bool {
-		allips.WriteString(";")
-		allips.WriteString(key.(string))
-		c.ips.Delete(key)
+		if key.(string) != "last_time" {
+			allips.WriteString(";")
+			allips.WriteString(key.(string))
+			c.ips.Delete(key)
+		}
 		return true
 	})
 	return allips.String()
@@ -53,8 +57,10 @@ func (c *Counter) RemoveAllIPs() string {
 func (c *Counter) GetALLIPs() string {
 	var allips strings.Builder
 	c.ips.Range(func(key interface{}, value interface{}) bool {
-		allips.WriteString(";")
-		allips.WriteString(key.(string))
+		if key.(string) != "last_time" {
+			allips.WriteString(";")
+			allips.WriteString(key.(string))
+		}
 		return true
 	})
 	return allips.String()
@@ -64,8 +70,11 @@ func (c *Counter) GetLastIPTime() (int64, bool) {
 	var ok bool
 
 	time, ok = c.ips.Load("last_time")
-
-	return time.(int64), ok
+	if time != nil {
+		return time.(int64), ok
+	} else {
+		return -1, ok
+	}
 }
 
 // Manager is an implementation of stats.Manager.

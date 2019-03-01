@@ -1,3 +1,5 @@
+// +build !confonly
+
 package dns
 
 import (
@@ -324,7 +326,7 @@ func (s *ClassicNameServer) findIPsForDomain(domain string, option IPOption) []n
 				ips = append(ips, rec.IP)
 			}
 		}
-		return filterIP(ips, option)
+		return toNetIP(filterIP(ips, option))
 	}
 	return nil
 }

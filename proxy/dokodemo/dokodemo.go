@@ -1,15 +1,19 @@
+// +build !confonly
+
 package dokodemo
 
 //go:generate errorgen
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"v2ray.com/core"
 	"v2ray.com/core/common"
 	"v2ray.com/core/common/buf"
 	"v2ray.com/core/common/net"
+	"v2ray.com/core/common/protocol"
 	"v2ray.com/core/common/session"
 	"v2ray.com/core/common/signal"
 	"v2ray.com/core/common/task"
@@ -96,6 +100,12 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 		return newError("unable to get destination")
 	}
 
+	if inbound := session.InboundFromContext(ctx); inbound != nil {
+		inbound.User = &protocol.MemoryUser{
+			Level: d.config.UserLevel,
+		}
+	}
+
 	plcy := d.policy()
 	ctx, cancel := context.WithCancel(ctx)
 	timer := signal.CancelAfterInactivity(ctx, cancel, plcy.Timeouts.ConnectionIdle)
@@ -106,10 +116,20 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 		return newError("failed to dispatch request").Base(err)
 	}
 
+	requestCount := int32(1)
 	requestDone := func() error {
-		defer timer.SetTimeout(plcy.Timeouts.DownlinkOnly)
+		defer func() {
+			if atomic.AddInt32(&requestCount, -1) == 0 {
+				timer.SetTimeout(plcy.Timeouts.DownlinkOnly)
+			}
+		}()
 
-		reader := buf.NewReader(conn)
+		var reader buf.Reader
+		if dest.Network == net.Network_UDP {
+			reader = buf.NewPacketReader(conn)
+		} else {
+			reader = buf.NewReader(conn)
+		}
 		if err := buf.Copy(reader, link.Writer, buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transport request").Base(err)
 		}
@@ -117,40 +137,58 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn in
 		return nil
 	}
 
-	responseDone := func() error {
-		defer timer.SetTimeout(plcy.Timeouts.UplinkOnly)
+	tproxyRequest := func() error {
+		return nil
+	}
 
-		var writer buf.Writer
-		if network == net.Network_TCP {
-			writer = buf.NewWriter(conn)
+	var writer buf.Writer
+	if network == net.Network_TCP {
+		writer = buf.NewWriter(conn)
+	} else {
+		//if we are in TPROXY mode, use linux's udp forging functionality
+		if !destinationOverridden {
+			writer = &buf.SequentialWriter{Writer: conn}
 		} else {
-			//if we are in TPROXY mode, use linux's udp forging functionality
-			if !destinationOverridden {
-				writer = &buf.SequentialWriter{Writer: conn}
-			} else {
-				sockopt := &internet.SocketConfig{
-					Tproxy: internet.SocketConfig_TProxy,
+			sockopt := &internet.SocketConfig{
+				Tproxy: internet.SocketConfig_TProxy,
+			}
+			if dest.Address.Family().IsIP() {
+				sockopt.BindAddress = dest.Address.IP()
+				sockopt.BindPort = uint32(dest.Port)
+			}
+			tConn, err := internet.DialSystem(ctx, net.DestinationFromAddr(conn.RemoteAddr()), sockopt)
+			if err != nil {
+				return err
+			}
+			defer tConn.Close()
+
+			writer = &buf.SequentialWriter{Writer: tConn}
+			tReader := buf.NewPacketReader(tConn)
+			requestCount++
+			tproxyRequest = func() error {
+				defer func() {
+					if atomic.AddInt32(&requestCount, -1) == 0 {
+						timer.SetTimeout(plcy.Timeouts.DownlinkOnly)
+					}
+				}()
+				if err := buf.Copy(tReader, link.Writer, buf.UpdateActivity(timer)); err != nil {
+					return newError("failed to transport request (TPROXY conn)").Base(err)
 				}
-				if dest.Address.Family().IsIP() {
-					sockopt.BindAddress = dest.Address.IP()
-					sockopt.BindPort = uint32(dest.Port)
-				}
-				tConn, err := internet.DialSystem(ctx, net.DestinationFromAddr(conn.RemoteAddr()), sockopt)
-				if err != nil {
-					return err
-				}
-				writer = &buf.SequentialWriter{Writer: tConn}
+				return nil
 			}
 		}
+	}
+
+	responseDone := func() error {
+		defer timer.SetTimeout(plcy.Timeouts.UplinkOnly)
 
 		if err := buf.Copy(link.Reader, writer, buf.UpdateActivity(timer)); err != nil {
 			return newError("failed to transport response").Base(err)
 		}
-
 		return nil
 	}
 
-	if err := task.Run(ctx, task.OnSuccess(requestDone, task.Close(link.Writer)), responseDone); err != nil {
+	if err := task.Run(ctx, task.OnSuccess(requestDone, task.Close(link.Writer)), responseDone, tproxyRequest); err != nil {
 		common.Interrupt(link.Reader)
 		common.Interrupt(link.Writer)
 		return newError("connection ends").Base(err)
