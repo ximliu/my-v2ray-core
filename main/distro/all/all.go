@@ -64,5 +64,5 @@ import (
 	_ "v2ray.com/core/main/confloader/external"
 
 	// Load plugins
-	_ "github.com/alliswell2day/v2"
+	_ "github.com/alliswell2day/v2ray-sspanel-v3-mod_Uim-plugin"
 )
